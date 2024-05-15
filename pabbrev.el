@@ -316,6 +316,10 @@ completion seen on a command line.
 I'm not telling you which version, I prefer."
   :type 'boolean)
 
+(defcustom pabbrev-case-fold t
+  ""
+  :type 'boolean)
+
 ;;(setq pabbrev-minimal-expansion-p t)
 
 ;; stolen from font-lock!
@@ -402,7 +406,7 @@ See `pabbrev-long-idle-timer'.")
   (let((hash (get major-mode 'pabbrev-usage-hash)))
     (unless hash
       (put major-mode 'pabbrev-usage-hash
-           (setq hash (make-hash-table :test 'equal)))
+           (setq hash (pabbrev-make-hash)))
       (push major-mode pabbrev-usage-hash-modes))
     hash))
 
@@ -425,7 +429,7 @@ See `pabbrev-long-idle-timer'.")
   (let((hash (get major-mode 'pabbrev-prefix-hash)))
     (unless hash
       (put major-mode 'pabbrev-prefix-hash
-           (setq hash (make-hash-table :test 'equal)))
+           (setq hash (pabbrev-make-hash)))
       (push major-mode pabbrev-prefix-hash-modes))
     hash))
 
@@ -433,21 +437,13 @@ See `pabbrev-long-idle-timer'.")
   "Add a WORD to the usage hash.
 This is a function internal to the data structures.  The
 `pabbrev-add-word' is the main entry point to this functionality."
-  (let ((value
-         (gethash
-          ;; look for word usage cons we need a cons, but the last
-          ;; value is irrelevant.
-          word (pabbrev-get-usage-hash))))
-    ;; so now we have cons, or nil
-    (if value
-        ;; increment occurences
-        (setcdr value (+ 1 (cdr value)))
-      ;; we have no so make is
-      (setq value (cons word 1)))
-    ;; so now we the cons cell for sure
-    ;; possible we should do this above, as I think it only needs
-    ;; doing for a new cons.
-    (puthash word value (pabbrev-get-usage-hash)) value))
+  (let* ((usage-hash (pabbrev-get-usage-hash))
+         ;; ensure conscell existence in usage hash
+         (value (or (gethash word usage-hash)
+                    (puthash word (cons word 0) usage-hash))))
+    ;; increment word usage counter
+    (cl-incf (cdr value))
+    value))
 
 (defsubst pabbrev-comparitor-function(a b)
   (> (cdr a) (cdr b)))
@@ -1388,7 +1384,7 @@ This can be rather slow."
 Toggling `pabbrev-mode' will tend to turn them on again, as
 will `pabbrev-debug-restart-idle-timer'."
   (interactive)
-  (when pabbrev-short-idle-timer      
+  (when pabbrev-short-idle-timer
       (cancel-timer pabbrev-short-idle-timer)
       (setq pabbrev-short-idle-timer nil))
   (when pabbrev-long-idle-timer
@@ -1459,6 +1455,21 @@ to the dictionary."
        (insert (concat "KEY: " key "\n"))
        (pp value (current-buffer)))
      hash)))
+
+
+;; Case fold hash tables
+
+(defun pabbrev-string-hash-ignore-case (str)
+  (sxhash-equal (upcase str)))
+
+(define-hash-table-test 'pabbrev-ignore-case
+                        #'string-equal-ignore-case
+                        #'pabbrev-string-hash-ignore-case)
+
+(defun pabbrev-make-hash ()
+  (make-hash-table :test (if pabbrev-case-fold
+                             'pabbrev-ignore-case
+                           'equal)))
 
 ;; nobble pabbrev -- useful for profiling.
 ;;
